@@ -8,7 +8,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // 2. CONFIGURACIÓN INICIAL
 const app = express();
-const port = process.env.PORT || 3001;
+const port = 3001; 
 
 // --- Conexión a Supabase ---
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -20,18 +20,18 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // 3. MIDDLEWARE
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // 4. RUTAS DE LA API
 
 app.get('/api/initial-data', async (req, res) => {
-    console.log("Petición recibida: GET /api/initial-data");
     try {
         const [doctorsRes, appointmentsRes, clientsRes, chatHistoryRes] = await Promise.all([
             supabase.from('doctores').select('*').order('id', { ascending: true }),
             supabase.from('citas').select(`id, fecha_hora, descripcion, estado, duracion_minutos, cliente: clientes (id, nombre, dni), doctor: doctores (id, nombre)`),
-            supabase.from('clientes').select('id, nombre, dni, telefono'),
+            // --- CORRECCIÓN: Seleccionamos todos los campos de clientes ---
+            supabase.from('clientes').select('*').order('id', { ascending: true }),
             supabase.from('n8n_chat_histories').select('session_id, message').order('id', { ascending: true })
         ]);
 
@@ -39,8 +39,6 @@ app.get('/api/initial-data', async (req, res) => {
         if (appointmentsRes.error) throw appointmentsRes.error;
         if (clientsRes.error) throw clientsRes.error;
         if (chatHistoryRes.error) throw chatHistoryRes.error;
-        
-        console.log(`Datos obtenidos: ${doctorsRes.data.length} doctores, ${appointmentsRes.data.length} citas, ${clientsRes.data.length} clientes, ${chatHistoryRes.data.length} mensajes de chat.`);
         
         res.status(200).json({
             doctors: doctorsRes.data,
@@ -55,9 +53,9 @@ app.get('/api/initial-data', async (req, res) => {
     }
 });
 
+// --- Rutas para Doctores ---
 app.post('/api/doctors', async (req, res) => {
     const { nombre, especialidad, activo, horario_inicio, horario_fin } = req.body;
-    console.log("Petición recibida para crear doctor:", req.body);
     
     if (!nombre || !especialidad || !horario_inicio || !horario_fin) {
         return res.status(400).json({ error: 'Faltan campos obligatorios.' });
@@ -71,8 +69,6 @@ app.post('/api/doctors', async (req, res) => {
             .single();
 
         if (error) throw error;
-
-        console.log("Doctor creado exitosamente:", data);
         res.status(201).json(data);
 
     } catch (error) {
@@ -81,26 +77,96 @@ app.post('/api/doctors', async (req, res) => {
     }
 });
 
+app.patch('/api/doctors/:id', async (req, res) => {
+    const { id } = req.params;
+    const { especialidad, horario_inicio, horario_fin, activo } = req.body;
+    const updates = { especialidad, horario_inicio, horario_fin, activo };
+
+    try {
+        const { data, error } = await supabase
+            .from('doctores')
+            .update(updates)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Doctor no encontrado.' });
+        res.status(200).json(data);
+
+    } catch (error) {
+        console.error(`Error al actualizar doctor con ID ${id}:`, error.message);
+        res.status(500).json({ error: 'No se pudo actualizar el doctor.', details: error.message });
+    }
+});
+
+// --- NUEVA FUNCIONALIDAD: Actualizar estado del bot para un cliente ---
+app.patch('/api/clients/:id', async (req, res) => {
+    const { id } = req.params;
+    const { activo } = req.body;
+
+    // Validamos que 'activo' sea un booleano
+    if (typeof activo !== 'boolean') {
+        return res.status(400).json({ error: "El campo 'activo' debe ser un valor booleano (true/false)." });
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('clientes')
+            .update({ activo: activo })
+            .eq('id', id)
+            .select()
+            .single();
+        
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Cliente no encontrado.' });
+
+        console.log(`Estado del bot para el cliente ${id} actualizado a: ${activo}`);
+        res.status(200).json(data);
+
+    } catch(error) {
+        console.error(`Error al actualizar el estado del bot para el cliente ${id}:`, error.message);
+        res.status(500).json({ error: 'No se pudo actualizar el estado del bot.', details: error.message });
+    }
+});
+
+
+// --- Rutas para Citas ---
 app.post('/api/citas', async (req, res) => {
-    const { doctor_id, fecha_hora, descripcion, estado, cliente_id, new_client_name, new_client_dni } = req.body;
+    const { doctor_id, fecha_hora, descripcion, estado, cliente_id, new_client_name, new_client_dni, new_client_telefono } = req.body;
     let finalClientId = cliente_id;
+
     try {
         if (new_client_name && new_client_dni) {
             let { data: existingClient } = await supabase.from('clientes').select('id').eq('dni', new_client_dni).single();
             if (existingClient) {
                 finalClientId = existingClient.id;
             } else {
-                const { data: newClient, error: createError } = await supabase.from('clientes').insert({ nombre: new_client_name, dni: new_client_dni, telefono: '' }).select('id').single();
+                const { data: newClient, error: createError } = await supabase.from('clientes').insert({ nombre: new_client_name, dni: new_client_dni, telefono: new_client_telefono || '' }).select('id').single();
                 if (createError) throw createError;
                 finalClientId = newClient.id;
             }
         }
-        if (!finalClientId) return res.status(400).json({ error: 'Cliente no especificado.' });
-        const citaData = { cliente_id: finalClientId, doctor_id, fecha_hora, descripcion, estado: estado || 'programada' };
+
+        if (!finalClientId) {
+            return res.status(400).json({ error: 'Cliente no especificado.' });
+        }
+        
+        const citaData = { 
+            cliente_id: finalClientId, 
+            doctor_id, 
+            fecha_hora,
+            descripcion, 
+            estado: estado || 'programada' 
+        };
+
         const { data: newAppointment, error: appointmentError } = await supabase.from('citas').insert(citaData).select().single();
         if (appointmentError) throw appointmentError;
+        
         res.status(201).json(newAppointment);
+
     } catch (error) {
+        console.error("Error al procesar la cita:", error.message);
         res.status(500).json({ error: 'No se pudo procesar la cita.', details: error.message });
     }
 });
@@ -108,12 +174,30 @@ app.post('/api/citas', async (req, res) => {
 app.patch('/api/citas/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
+
+    delete updates.cliente_id;
+    delete updates.new_client_name;
+    delete updates.new_client_dni;
+    delete updates.new_client_telefono;
+
     try {
-        const { data, error } = await supabase.from('citas').update(updates).eq('id', id).select();
+        const { data, error } = await supabase
+            .from('citas')
+            .update(updates)
+            .eq('id', id)
+            .select()
+            .single();
+
         if (error) throw error;
-        res.status(200).json(data[0]);
+        
+        if (!data) {
+            return res.status(404).json({ error: 'No se encontró la cita para actualizar.' });
+        }
+
+        res.status(200).json(data);
     } catch (error) {
-        res.status(500).json({ error: 'No se pudo actualizar la cita.' });
+        console.error("Error al actualizar la cita:", error.message);
+        res.status(500).json({ error: 'No se pudo actualizar la cita.', details: error.message });
     }
 });
 
@@ -128,8 +212,20 @@ app.delete('/api/citas/:id', async (req, res) => {
     }
 });
 
+
 // 5. INICIO DEL SERVIDOR
 app.listen(port, () => {
     console.log(`🚀 ¡Backend de Vintex Clinic está funcionando en http://localhost:${port}!`);
 });
+```
+
+### Plan de Acción
+
+1.  **Actualiza ambos archivos** en tu computadora.
+2.  **Sube los cambios a GitHub:**
+    ```bash
+    git add .
+    git commit -m "Feat: Implementar sistema de notificación de secretaría y gestión de bot"
+    git push origin main
+    
 
