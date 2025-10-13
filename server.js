@@ -217,15 +217,3 @@ app.delete('/api/citas/:id', async (req, res) => {
 app.listen(port, () => {
     console.log(`🚀 ¡Backend de Vintex Clinic está funcionando en http://localhost:${port}!`);
 });
-```
-
-### Plan de Acción
-
-1.  **Actualiza ambos archivos** en tu computadora.
-2.  **Sube los cambios a GitHub:**
-    ```bash
-    git add .
-    git commit -m "Feat: Implementar sistema de notificación de secretaría y gestión de bot"
-    git push origin main
-    
-
