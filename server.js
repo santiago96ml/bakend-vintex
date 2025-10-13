@@ -8,7 +8,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // 2. CONFIGURACIÓN INICIAL
 const app = express();
-const port = 3001; 
+const port = 3002; 
 
 // --- Conexión a Supabase ---
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -217,3 +217,4 @@ app.delete('/api/citas/:id', async (req, res) => {
 app.listen(port, () => {
     console.log(`🚀 ¡Backend de Vintex Clinic está funcionando en http://localhost:${port}!`);
 });
+
