@@ -8,7 +8,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // 2. CONFIGURACIÓN INICIAL
 const app = express();
-const port = 3002; 
+const port = 3001; 
 
 // --- Conexión a Supabase ---
 const supabaseUrl = process.env.SUPABASE_URL;
