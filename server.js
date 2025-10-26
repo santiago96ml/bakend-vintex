@@ -100,20 +100,29 @@ app.patch('/api/doctors/:id', async (req, res) => {
     }
 });
 
-// --- NUEVA FUNCIONALIDAD: Actualizar estado del bot para un cliente ---
+// --- ACTUALIZACIÓN: Ahora acepta 'activo' y 'solicitud_de_secretaría' ---
 app.patch('/api/clients/:id', async (req, res) => {
     const { id } = req.params;
-    const { activo } = req.body;
+    const { activo, solicitud_de_secretaría } = req.body;
 
-    // Validamos que 'activo' sea un booleano
-    if (typeof activo !== 'boolean') {
-        return res.status(400).json({ error: "El campo 'activo' debe ser un valor booleano (true/false)." });
+    const updates = {};
+
+    // Validamos y añadimos los campos que SÍ vengan en el request
+    if (typeof activo === 'boolean') {
+        updates.activo = activo;
+    }
+    if (typeof solicitud_de_secretaría === 'boolean') {
+        updates.solicitud_de_secretaría = solicitud_de_secretaría;
+    }
+
+    if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No se proporcionaron campos válidos para actualizar (se esperaba 'activo' o 'solicitud_de_secretaría')." });
     }
 
     try {
         const { data, error } = await supabase
             .from('clientes')
-            .update({ activo: activo })
+            .update(updates)
             .eq('id', id)
             .select()
             .single();
@@ -121,12 +130,12 @@ app.patch('/api/clients/:id', async (req, res) => {
         if (error) throw error;
         if (!data) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
-        console.log(`Estado del bot para el cliente ${id} actualizado a: ${activo}`);
+        console.log(`Cliente ${id} actualizado:`, updates);
         res.status(200).json(data);
 
     } catch(error) {
-        console.error(`Error al actualizar el estado del bot para el cliente ${id}:`, error.message);
-        res.status(500).json({ error: 'No se pudo actualizar el estado del bot.', details: error.message });
+        console.error(`Error al actualizar cliente ${id}:`, error.message);
+        res.status(500).json({ error: 'No se pudo actualizar el cliente.', details: error.message });
     }
 });
 
@@ -217,4 +226,3 @@ app.delete('/api/citas/:id', async (req, res) => {
 app.listen(port, () => {
     console.log(`🚀 ¡Backend de Vintex Clinic está funcionando en http://localhost:${port}!`);
 });
-
